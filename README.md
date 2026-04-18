@@ -2,6 +2,10 @@
 
 ---
 ![Project Banner](./assets/banner.jpg)
+<p align="center">
+  <img src="https://img.shields.io/badge/Status-Active-success">
+  <img src="https://img.shields.io/badge/Platform-Claude%20Code-orange">
+</p>
 
 # Skill Gardener
 
