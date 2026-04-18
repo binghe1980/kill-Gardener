@@ -1,6 +1,8 @@
 [简体中文](./README.zh-CN.md) | English
 
 ---
+![Project Banner](./assets/banner.jpg)
+
 # Skill Gardener
 
 > A long-term cultivation system for Claude Code Skills.  
