@@ -1,7 +1,7 @@
 [简体中文](./README.zh-CN.md) | English
 
 ---
-![Skill Gardener](./assets/header.jpg)
+![Skill Gardener](./assets/header.jpg?v=1)
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Active-success">
   <img src="https://img.shields.io/badge/Platform-Claude%20Code-orange">
