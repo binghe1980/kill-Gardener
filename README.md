@@ -1,9 +1,7 @@
 [简体中文](./README.zh-CN.md) | English
 
 ---
-<p align="center">
-  <img src="./assets/banner.jpg" alt="Project Banner" width="100%">
-</p>
+
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Active-success">
   <img src="https://img.shields.io/badge/Platform-Claude%20Code-orange">
