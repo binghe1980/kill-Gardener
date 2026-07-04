@@ -36,6 +36,17 @@ For N=5, M=15: 10 pairs × 30 judgments = 300 judgments. Each judgment is a sub-
 
 If budget is constrained, reduce M before reducing N. Diversity of candidates matters more than number of arena prompts.
 
+### Cheap default: champion-vs-baseline (recommended starting mode)
+
+Full round-robin (N×(N-1)/2 pairs × 2M judgments) is expensive — for N=5, M=15 that's 300 judge calls per round, which is prohibitive for most personal-scale users and often silently forces dry-run mode. **The practical default is a two-tier tournament that costs a fraction:**
+
+1. **Screen (cheap):** run each of the N candidates against the *current baseline Skill* on a small prompt sample (e.g. 5 prompts, position-swapped) → N×5×2 judgments. Keep only candidates that beat baseline.
+2. **Final (focused):** run the top 2-3 survivors against each other on the fuller prompt set.
+
+For N=5, M=15 this drops ~300 judgments to roughly 50-80 — runnable without dry-run degradation, while still catching the "does this actually beat what we have" question that matters most. Reserve full round-robin for high-stakes Skills where the extra rigor is worth the cost, and say so explicitly when choosing it.
+
+Rule of thumb: **spend compute proportional to stakes.** A personal utility Skill doesn't need 300 judgments; a Skill you ship to others might.
+
 ---
 
 ## The match protocol

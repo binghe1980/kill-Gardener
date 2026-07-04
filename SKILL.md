@@ -1,254 +1,289 @@
 ---
 name: skill-gardener
-description: A long-term Skill cultivation system that diagnoses, evolves, and validates SKILL.md files using real usage data, pairwise preferences, diverse candidate generation, and style anchors. Use this skill whenever the user asks to "improve a skill", "optimize a skill", "audit a skill", "check if this skill is good", "make this skill better", "评估 skill", "打磨 skill", "升级 skill", "诊断 skill", when the user shares a SKILL.md file and asks for feedback, or when the user mentions any Skill has been producing unsatisfying outputs. Works across functional, aesthetic, and creative Skill types.
+description: 一个 Skill 培育系统，从"零数据即可用的静态专家审查"到"有日志时的深度经验培育"分档提供 SKILL.md 优化。当用户提到"打磨 skill""优化 skill""升级 skill""诊断 skill""评估 skill""改进 skill""审查 skill""skill 不好用""这个 skill 写得怎么样""让我的 skill 变好""我的 skill 该怎么发展""skill 该拆吗""improve a skill""audit a skill""optimize a skill""make this skill better"时必须触发此 Skill。当用户分享一个 SKILL.md 文件寻求反馈时触发，当用户抱怨某个 Skill 输出质量不稳定时触发，当用户想系统性检查或规划自己 Skill 库时触发。适用于功能型、审美型、创作型三类 Skill。A tiered Skill cultivation system for Claude Code and Codex: zero-data static expert review, log-based deep cultivation, health tracking, and roadmap guidance.
 ---
 
 # Skill Gardener
 
-> A gardener, not a trainer. Skills aren't models — they're living artifacts. This system observes how a Skill actually performs, diagnoses specific failures, proposes diverse fixes, and validates improvements against real usage. No magic numbers. No single scores. Just patient, evidence-based cultivation.
+> 一个园丁，而不是训练员。Skill 是有生命的长期资产。这套系统观察每个 Skill 的表现、诊断具体的失败、提出多样化的修复、追踪它的成长轨迹、规划它的未来方向。没有魔法数字，没有单一评分，只有基于证据的培育。
 
 ---
 
-## Why this exists
+## 三档深度：先能立刻用，再谈深挖（v2 核心，务必先读）
 
-Most Skill review tools rely on a single LLM-generated score. That fails for three reasons:
+旧版只有一条重型路径——它建立在"真实调用日志"上，但工具默认不自动记日志，于是用户被迫走低置信度的冷启动，得到一套繁重仪式却没有 day-1 价值，也没有"进化感"。v2 按你实际拥有的数据和精力分三档，**从最轻、最立刻可用的开始**：
 
-One — Skill quality is multi-objective. A Skill can get better at intent-matching while getting worse at style fidelity. A single number hides the tradeoff.
+| 档 | 指令 | 需要什么 | 一句话 |
+|---|---|---|---|
+| **快速档**（默认起点） | `~tune [skill]` | 零数据 | 资深作者式静态审查 SKILL.md，一轮内在副本上修好结构/触发/过期/示例等**不需要数据就能确认**的问题，给 before/after。**多数 skill 到这一步就明显变好了。** |
+| **深度档** | `~cultivate [skill]` | 真实日志 | 有日志、且静态问题修完后，用多候选竞技场+验证集压榨"哪个措辞更好/风格保真/输出稳定"这类**必须靠证据**的质量。 |
+| **规划档** | `~roadmap [skill]` | 判断力 | 不改细节，帮你想方向：该拆分/废弃/加能力/合并/重新分类吗。 |
 
-Two — synthetic test prompts have low signal. Two or three imagined prompts cannot approximate the distribution of real usage. They also invite overfitting.
+配套：`~health` 追踪每个 skill 的成长轨迹（让进化可感知，见 `references/health-card.md`）；`~capture` 帮你把日志真正记起来（见 `references/log-capture.md`）。
 
-Three — "improvement" claimed by an LLM that just wrote the improvement is not trustworthy. Same model, same session, same biases.
+**决策很简单：** 没数据 → `~tune`（几乎总是先做这个）。修完静态问题、又有日志想继续深挖 → `~cultivate`。细节都打磨过了还觉得差点意思 → `~roadmap` 看是不是方向问题。
 
-Skill Gardener replaces absolute scoring with **pairwise preference**, synthetic prompts with **real usage logs**, and single-candidate hill-climbing with **parallel candidate tournaments**. It also separates Skills by type and applies different evaluation logic to each, because an aesthetic Skill and a functional Skill should not be judged by the same rubric.
-
----
-
-## Core principles
-
-1. **Evaluate on real use, not imagination.** Every Skill under gardening builds a usage log. Optimization pulls evaluation prompts from that log, never from Claude's guesses about what users "might" ask. Split into train and holdout at optimization time; never let the holdout leak into training.
-
-2. **Prefer pairwise over absolute.** Instead of scoring a Skill 78/100, compare two versions on the same prompt and ask which output is better, with evidence. Pairwise judgments are more stable, more debuggable, and directly produce the signal needed for selection.
-
-3. **Diversify before selecting.** When proposing improvements, generate 4-6 candidates from genuinely different strategies, not one. Run them in a tournament. This is the only way to approximate evolution; single-candidate iteration is just hill-climbing in a costume.
-
-4. **Respect Skill type.** Functional, aesthetic, and creative Skills have different failure modes and different success criteria. A single rubric applied to all three will silently deform the aesthetic ones. See `references/skill-types.md`.
-
-5. **Build the user's taste, not just the Skill.** Every time the user casts a tie-breaking vote between two candidates, that vote enters a persistent taste database. Over time, the judge model is calibrated by the user's own preferences — across Skills, across sessions, across years.
-
-6. **Extract principles, don't just apply diffs.** When an optimization succeeds, write down the general lesson it taught. A Skill-specific fix that teaches a cross-Skill principle is ten times more valuable than a fix that teaches nothing.
-
-7. **Be honest about uncertainty.** When the margin between two candidates is inside the noise band, say so and ask the human. Do not fake confidence to seem decisive.
+**双引擎**：`~tune`/`~roadmap`/`~health` 是主 Agent 自己做的静态工作，Claude Code 和 Codex 都能跑。`~cultivate` 的多子 agent 竞技场在 Claude Code 下用 Task 子代理；Codex 下退化为主 Agent 顺序扮演（见竞技场 dry-run 模式），或用回溯档降低对并行的依赖。
 
 ---
 
-## Commands
+## 为什么做这个
 
-Natural language works everywhere. For power users, short commands also work.
+目前大多数 Skill 审查工具都依赖 LLM 生成一个单一分数。这种做法在三个层面上是脆弱的。
 
-| Command | Natural language trigger | What it does |
+第一，Skill 的质量本质上是多目标的。一个 Skill 可以在"意图匹配"上变好的同时在"风格保真度"上变差。压缩成一个数字意味着隐藏了所有设计权衡。
+
+第二，合成测试 prompt 的信噪比很低。两三条凭想象写出来的测试 prompt 无法代表真实使用分布，还非常容易过拟合。
+
+第三，让一个刚写完改进方案的 LLM 来评价这个方案，本身就不可信。同模型、同上下文、同偏好。
+
+Skill Gardener 用三个方向的替换解决这些问题：**成对偏好** 替代绝对评分、**真实调用日志** 替代合成 prompt、**多候选锦标赛** 替代单点爬山。系统还按 Skill 类型分流评估逻辑——审美型 Skill 和功能型 Skill 绝对不能用同一套 rubric 打分。
+
+---
+
+## 核心原则
+
+1. **在真实使用上评估，不靠想象。** 每个被培育的 Skill 都积累自己的调用日志。优化环节从日志里抽取评估 prompt，绝不用 Claude 凭空生成的"用户可能会这样问"作为测试集。优化时严格区分训练集和验证集，任何时候都不允许验证集泄露到训练流程里。
+
+2. **优先成对比较，而非绝对打分。** 不去问"这个 Skill 值 78 分还是 82 分"，而是拿两个版本在同一个 prompt 上对比，问"哪个输出更好、为什么"。成对判断更稳定、更可审计、直接给出选择所需的信号。
+
+3. **先生成多样性，再做选择。** 每一轮改进不是生成 1 个候选，而是从不同策略类别生成 4-6 个候选并进入锦标赛。这才是逼近"进化"的唯一方式——单候选迭代只是穿了马甲的爬山。
+
+4. **尊重 Skill 类型。** 功能型、审美型、创作型 Skill 有各自的失败模式和成功标准。一套万能 rubric 套在三类 Skill 上，会无声地损坏那些不匹配 rubric 假设的类型。详见 `references/skill-types.md`。
+
+5. **积累的是用户的品味，不只是 Skill 的版本。** 每当用户在险胜候选之间投下关键一票，这次投票都会进入一个持续增长的品味数据库。随着时间推移，评估裁判将被用户自己的真实偏好所校准——跨 Skill、跨会话、跨月跨年。
+
+6. **提炼原则，而不只是应用 diff。** 当一次优化成功时，把它教给我们的通用经验写下来。一个具体修复如果能传递一条跨 Skill 的原则，它的价值比一次只改一个 Skill 的 diff 高十倍。
+
+7. **对不确定性保持诚实。** 当两个候选的差距落在噪声带内时，如实说，问人。假装决断比把决定权交还给用户更糟糕。
+
+---
+
+## 命令
+
+自然语言在任何地方都可用。以下简短命令供熟练用户使用。
+
+| 命令 | 自然语言触发 | 作用 |
 |---|---|---|
-| `~cultivate [skill]` | "cultivate X", "improve X", "打磨 X" | Full cycle: diagnose, generate candidates, arena, validate, commit |
-| `~diagnose [skill]` | "diagnose X", "what's wrong with X", "X 问题出在哪" | Analysis only, no changes to Skill files |
-| `~anchor [skill]` | "set up anchors for X", "给 X 建锚点" | Create or update style anchors for an aesthetic/creative Skill |
-| `~log [skill]` | "show X's usage log" | Inspect what's been recorded for a Skill |
-| `~principles` | "show principles", "看看学到的原则" | Browse the cross-Skill principles library |
-| `~taste` | "show taste database" | View or export the user's preference history |
-| `~review` | "show gardening history" | Summary of all optimizations across all Skills |
+| `~tune [skill]` | "审查 X""快速优化 X""帮我看看 X 写得怎么样" | **零数据快速档**：静态专家审查 + 在副本上修高置信问题 + before/after（见 `references/quick-review.md`） |
+| `~cultivate [skill]` | "深度培育 X""用日志优化 X" | **深度档**：诊断、多候选、竞技场、验证集、提交（需真实日志） |
+| `~roadmap [skill]` | "X 该怎么发展""X 该拆吗""规划我的 skill 库" | **规划档**：拆分/废弃/扩展/合并/重分类 方向评估（见 `references/roadmap.md`） |
+| `~health [skill]` | "X 现在怎么样""显示成长轨迹" | 查看单个或全库 skill 的健康档案与进步轨迹（见 `references/health-card.md`） |
+| `~capture` | "帮我记日志""怎么让日志自动记" | 配置日志捕获 hook 或结构化回溯数据（见 `references/log-capture.md`） |
+| `~diagnose [skill]` | "诊断 X""X 问题出在哪" | 仅分析，不改 Skill 文件（快速档的诊断部分，不落改动） |
+| `~anchor [skill]` | "给 X 建锚点" | 为审美/创作型 Skill 建立或更新风格锚点（深度档前置） |
+| `~log [skill]` | "看看 X 的调用日志" | 查看指定 Skill 累积的使用记录 |
+| `~principles` | "显示原则库" | 浏览跨 Skill 原则库 |
+| `~taste` | "显示品味数据库" | 查看或导出用户偏好历史 |
+| `~review` | "显示培育历史" | 所有 Skill 的优化记录概览 |
 
-If Skill name is omitted, Skill Gardener asks the user to pick from available Skills.
-
----
-
-## First-time setup
-
-On first invocation, detect whether `_runtime/` exists in the Skill Gardener installation folder. If not, run setup:
-
-1. Create `_runtime/principles.md`, `_runtime/taste-db.jsonl`, `_runtime/logs/`.
-2. Ask the user to classify their existing Skills into types (functional / aesthetic / creative / mixed). See `references/skill-types.md` for the distinction. Store classifications in `_runtime/skill-registry.yaml`.
-3. Explain to the user that meaningful optimization needs usage data, and offer three paths:
-   - **Live mode**: start logging now, revisit in a week or two when logs have accumulated.
-   - **Retrospective mode**: paste recent Skill outputs (and ideally the prompts that produced them) into `_runtime/logs/<skill-name>/retrospective.jsonl`.
-   - **Cold start mode** (least reliable): proceed with Claude-generated test prompts, but flag all results as lower-confidence.
-
-Say this honestly: live mode produces the best results, but requires patience. Retrospective mode is a good compromise. Cold start mode is available but its outputs should be trusted less.
+如果省略 Skill 名称，Skill Gardener 会请用户从可用 Skill 中选择一个。**默认建议**：不确定用哪个时，从 `~tune` 开始。
 
 ---
 
-## The cultivation cycle
+## 首次安装设置
 
-Invoked by `~cultivate [skill]`. Eight stages.
+首次调用时检测安装目录下是否存在 `_runtime/` 文件夹。如果没有，运行设置流程：
 
-### Stage 1 — Prepare
+1. 创建 `_runtime/principles.md`、`_runtime/taste-db.jsonl`、`_runtime/logs/`。
 
-Check the target Skill exists. Read its manifest (see `references/skill-types.md` for format). If no manifest exists, generate one with the user's input and save it alongside the Skill. Classify the Skill: functional, aesthetic, creative, or mixed.
+2. 请用户把现有的 Skill 按类型分类——功能型 / 审美型 / 创作型 / 混合型。参考 `references/skill-types.md` 理解四类的区别。分类结果存入 `_runtime/skill-registry.yaml`。
 
-Check the usage log. If fewer than 10 entries exist and the Skill is not in cold-start mode, warn the user and ask whether to proceed anyway or wait for more data.
+3. 告诉用户两件事：
 
-Create a git branch: `gardener/<skill-name>/YYYYMMDD-HHMM`. All changes live on this branch until accepted.
+   - **现在就能用**：`~tune` 快速档零数据可跑，先用它把不需要证据就能确认的问题（结构 bug、触发词、过期事实、缺示例）修掉——多数 skill 到这一步已明显变好。**不要因为"没日志"就什么都不做。**
+   - **想深挖就配日志**：`~cultivate` 深度档需要真实调用日志。用 `~capture` 立刻配上自动记录 hook（五分钟一劳永逸），并把手头已有的几次结果做回溯。数据积累起来后，深度档才跑得出高置信度结论。日志三条路径（自动 hook / 会话回溯 / 冷启动兜底）详见 `references/log-capture.md`。
 
-### Stage 2 — Diagnose
-
-Load `references/failure-modes.md`. For each failure mode in the catalog relevant to this Skill's type, scan the usage log for instances. Output a prioritized **failure report**:
-
-- Which failure modes are present, how many times, with log-entry references
-- Which failure mode has the highest frequency × severity product — this becomes the target
-
-Show the failure report to the user. **Stop and wait for confirmation** before moving to Stage 3. The user can redirect: "ignore mode X this time, focus on Y."
-
-### Stage 3 — Generate candidates
-
-Load `references/candidate-strategies.md`. For the target failure mode, identify 4-6 candidate strategies from different categories (not five variations of "add a constraint"). Prefer diverse strategies over similar ones, even if some seem less likely to work — diversity is the point.
-
-For each strategy, spawn an independent sub-agent to draft the concrete change. Each sub-agent receives:
-- The full current SKILL.md
-- The target failure mode with evidence
-- The specific strategy it should apply
-- The constraint: **do not change the Skill's core intent, only how it achieves that intent**
-
-Each sub-agent returns:
-- A proposed new SKILL.md
-- A one-paragraph explanation of what it changed and why
-- A prediction of one side-effect that might appear
-
-Save all candidates to `_runtime/logs/<skill-name>/cultivation-<timestamp>/candidates/`. Never merge into the Skill directory at this stage.
-
-### Stage 4 — Arena
-
-Load `references/arena-protocol.md`. Sample prompts from the usage log — use 60% as the training arena set (used here), reserve 40% as the holdout (used in Stage 6).
-
-For each pair of candidates, for each arena-set prompt, spawn a **judge sub-agent** that:
-1. Receives both outputs (A and B) **without knowing which strategy produced which**
-2. Outputs a preference (A / B / tie) plus a one-sentence reason
-3. The match is then **run again with A and B swapped** to check for position bias
-4. If the judge flips on swap, the match is counted as a tie
-
-Tally wins, losses, and ties. Compute simple win rates. For aesthetic and creative Skills, also run the **anchor check** (see `references/anchor-system.md`): candidates that drift from the style anchors beyond the configured threshold are automatically disqualified regardless of arena performance.
-
-### Stage 5 — Human oracle (conditional)
-
-If the top candidate's win margin over the second candidate is within the noise band (default: win rate difference < 15%, or fewer than 8 decisive matches), the arena result is "close call." Close calls go to the user:
-
-- Present the top 2-3 candidates with their win rates
-- Show 3-5 representative head-to-head prompts where they diverged
-- Ask the user to vote on each pair
-- Record every vote in `_runtime/taste-db.jsonl`
-
-The user's votes determine the winner. If the user declines to vote, the arena's top candidate wins by default, but the result is flagged as "weak preference."
-
-For wins that are *not* close calls, the arena decides alone.
-
-### Stage 6 — Holdout validation
-
-Take the winning candidate and run it against the **holdout** prompts (the 40% never used in arena). Run the original Skill against the same holdout prompts. Judge the pairs, same protocol as Stage 4.
-
-If the candidate still wins on holdout: confirmed improvement.
-
-If the candidate performs worse or equal on holdout: **overfitting detected**. Report to the user and recommend rejection. The user can override, but the default is to reject.
-
-### Stage 7 — Commit and learn
-
-If the winner survived Stage 6:
-
-1. Write the new SKILL.md to the Skill directory
-2. `git commit` on the gardener branch with a detailed message: the failure mode, the strategy that won, the arena and holdout win rates, a reference to the cultivation log
-3. **Extract a principle.** Spawn a sub-agent with the before/after diff, the failure mode, and the winning strategy. Ask it to articulate the general lesson in one paragraph, tagged with Skill types it likely applies to. Append to `_runtime/principles.md`.
-4. Ask the user to review the commit and merge to master, or request additional iteration.
-
-If no winner survived: commit nothing. Write a `_runtime/logs/<skill-name>/cultivation-<timestamp>/outcome.md` explaining why (arena indecisive, holdout rejected, anchors failed). Ask the user whether to try a different failure mode or stop for now.
-
-### Stage 8 — Report
-
-Present a clean summary:
-
-- Target failure mode
-- Winning strategy (or: no winner)
-- Arena and holdout win rates
-- Side effects observed or confirmed absent
-- New principle extracted (if any)
-- Suggested next step (another round, different failure mode, or stop)
-
-Do not summarize with a single score. If the user asks "is it better now?", answer with the evidence: "On 23 of 40 matched holdout prompts, the new version was preferred; on 9 the old version was preferred; 8 were ties. The dominant failure mode that prompted this round (verbosity bloat) dropped from 31% to 8% in the holdout sample."
+   诚实排序：**没数据优先 `~tune`，而不是冷启动 `~cultivate`**——静态审查往往比冷启动合成 prompt 更准更省。
 
 ---
 
-## How to handle the three Skill types
+## 深度培育循环（`~cultivate`）
 
-See `references/skill-types.md` for full definitions. Here is the short version of how each type changes the cycle:
+> 这是**深度档**，需要真实日志。跑它之前，先用 `~tune` 做过静态审查——不需要数据就能修的问题应该已经修完，深度档只用来压榨"必须靠证据"的质量（哪个措辞更好、风格保真、输出稳定）。没有日志时不要跑这个，用 `~tune`。
 
-**Functional Skills** (workflow automation, data processing, API integration): emphasize arena on real usage logs. Low weight on style anchors. Common failure modes: intent drift, format violation, over-constraint.
+由 `~cultivate [skill]` 触发。共八个阶段。
 
-**Aesthetic Skills** (design, layout, visual generation): **anchors are mandatory.** Before cultivation can begin, the user must establish 5-10 positive anchors (outputs they love) and 3-5 negative anchors (outputs that miss the mark). The arena still runs, but anchor similarity is a hard gate. A candidate that wins the arena but drifts from anchors is rejected.
+### 阶段 1 — 准备
 
-**Creative Skills** (writing, storytelling, ideation): combination of the above plus a dedicated AI-voice detector. Common failure modes: formulaic phrasing, tonal drift, over-structured output. User oracle is triggered more often because creative judgment is harder to delegate.
+确认目标 Skill 存在。读取它的 manifest（格式详见 `references/skill-types.md`）。如果没有 manifest，先通过与用户对话生成一份并保存在 Skill 同目录。判断 Skill 类型：功能型、审美型、创作型或混合型。
 
-**Mixed Skills**: treat dominant dimension first, secondary dimension as a hard check.
+检查使用日志。如果日志少于 10 条：**不要硬跑深度档**。告诉用户深度档需要证据，建议改走 `~tune`（静态审查，零数据也能显著改进），并用 `~capture` 开始积累日志，两周后再回来深度培育。
+
+安全落点：优先在副本 `<skill>.gardener-draft/` 上工作。若 skill 恰在 git 仓库内，额外建分支 `gardener/<skill-name>/YYYYMMDD-HHMM` 更好，但**不以 git 仓库为前提**——不在 git 下就用副本+diff。
+
+### 阶段 2 — 诊断
+
+加载 `references/failure-modes.md`。对 Skill 类型相关的每一种失败模式，在使用日志里扫描实例。输出一份按优先级排序的**失败报告**：
+
+- 有哪些失败模式出现、各出现多少次、对应日志条目的索引
+- 哪个失败模式的"频率 × 严重度"最高——这就是本轮目标
+
+把失败报告展示给用户。**停下来等确认**，再进入阶段 3。用户可以调整方向："这次先不管 X，集中处理 Y。"
+
+### 阶段 3 — 生成候选
+
+加载 `references/candidate-strategies.md`。针对目标失败模式，从**不同类别**里挑选 4-6 个候选策略——不是"加一条约束"的 5 种变体，那不是多样性。多样性优先于表面合理性。
+
+每个策略派一个独立子 agent 去写具体改动。每个子 agent 收到：
+
+- 当前完整的 SKILL.md
+- 目标失败模式及其证据
+- 它应该应用的具体策略
+- 一条约束：**不能改 Skill 的核心意图，只能改它实现意图的方式**
+
+每个子 agent 返回：
+
+- 新的 SKILL.md 版本
+- 一段说明："改了什么、为什么改"
+- 一句对可能副作用的预判
+
+所有候选存入 `_runtime/logs/<skill-name>/cultivation-<timestamp>/candidates/`。此时**绝不**合并回 Skill 目录。
+
+### 阶段 4 — 竞技场
+
+加载 `references/arena-protocol.md`。从使用日志里按 60/40 抽样——60% 作为竞技场的训练 prompt 集（本阶段使用），40% 作为验证 prompt 集（阶段 6 使用，期间任何时候都不能接触）。
+
+对每一对候选、每一条训练 prompt，派一个**裁判子 agent**执行：
+
+1. 收到两份输出 A 和 B，**不知道哪个是哪个候选生成的**
+2. 输出偏好（A / B / 平局）+ 一句理由
+3. 交换 A 和 B 的位置再跑一次，检测位置偏差
+4. 如果交换后判断翻转，这场比赛记为平局
+
+统计胜负和平局，计算胜率。对审美型和创作型 Skill，额外运行**锚点检查**（详见 `references/anchor-system.md`）：候选与风格锚点的偏离超过阈值则被直接取消资格，不论它在竞技场表现如何。
+
+### 阶段 5 — 人类仲裁（条件触发）
+
+如果冠军候选领先第二名的胜率差在噪声带以内——默认胜率差小于 15%，或决胜局小于 8 场——本轮结果被标记为"险胜"，需要用户仲裁：
+
+- 展示前 2-3 个候选的胜率
+- 精选 3-5 场"分歧最大的对决"：不是两个候选输出很像的那种 prompt，而是产生明显差异的那些
+- 请用户逐对投票，可选附上理由
+- 每一票写入 `_runtime/taste-db.jsonl`
+
+用户的投票决定最终冠军。如果用户拒绝投票，竞技场前几名胜出，但整体结果会被标记为"弱偏好"。
+
+如果领先优势**没有**落在噪声带内，竞技场独立决策。
+
+### 阶段 6 — 验证集校验
+
+把冠军候选在**验证集**上跑一遍——那 40% 从未参与竞技场的 prompt。同时把原始 Skill 在同一批 prompt 上跑一遍。用和阶段 4 相同的裁判协议做成对比较。
+
+如果冠军在验证集上仍胜出：**改进得到确认**。
+
+如果冠军在验证集上打平或落后：**检测到过拟合**。报告给用户，默认建议拒绝。用户可以手动覆盖，但默认行为是拒绝。
+
+### 阶段 7 — 提交和学习
+
+如果冠军通过了阶段 6：
+
+1. 把新 SKILL.md 写入副本（用户确认后再覆盖原 Skill 目录）
+2. 若在 git 仓库内，在 gardener 分支上 `git commit`，message 记录：目标失败模式、获胜策略、竞技场与验证集胜率、培育日志路径；不在 git 下则把这些写进培育日志 outcome.md
+3. **更新健康档案。** 在 `_runtime/logs/<skill-name>/health.md` 里把本轮解决的失败模式标为"已解决（cultivate, vN，验证集 X% 胜）"，追加版本轨迹条目（格式见 `references/health-card.md`）——这是让用户看到"进化"的地方
+4. **提炼原则。** 让一个子 agent 接收前后 diff、失败模式、获胜策略，用一段话总结"这次学到的通用经验"，标记适用的 Skill 类型，追加到 `_runtime/principles.md`。
+5. 请用户审核，决定覆盖原 Skill / 合并分支，还是再迭代一轮。
+
+如果没有候选通过所有关卡：不提交任何改动。写一份 `_runtime/logs/<skill-name>/cultivation-<timestamp>/outcome.md` 说明原因——竞技场无决断、验证集否决、锚点不通过等。询问用户是否换一个失败模式再试，或者本轮停止。
+
+### 阶段 8 — 报告
+
+给出一份干净的总结：
+
+- 本轮目标失败模式
+- 获胜策略（或：无获胜者）
+- 竞技场胜率、验证集胜率
+- 观察到的副作用，或确认没有副作用
+- 本轮提炼出的新原则（如果有）
+- **健康档案已更新**：本轮划掉了哪个失败模式、当前还剩哪些（用 `~health <skill>` 看完整轨迹）
+- 下一步建议：再来一轮、换一个失败模式、跑 `~roadmap` 看方向、或本次到此为止
+
+**不要**用单一分数总结。如果用户问"到底有没有变好？"，用证据回答："在验证集的 40 场配对对决中，新版本赢 23 场、旧版本赢 9 场、平局 8 场。本轮针对的冗余膨胀失败模式，在验证集采样里从 31% 降到 8%。"
 
 ---
 
-## When to refuse or defer
+## 三种 Skill 类型的差异化处理
 
-Do not run cultivation when:
+完整定义见 `references/skill-types.md`。这里给简短版——每类 Skill 如何影响循环流程：
 
-- The Skill has fewer than 5 log entries and the user refuses to supply retrospective data or anchors. Explain why: optimization without evidence is theater.
-- The user asks for a "full score" or "overall rating." Explain that this system deliberately does not produce a single number, and offer the failure report as a more useful alternative.
-- The user wants to optimize a Skill they didn't write and don't own. Gardening modifies the Skill file; confirm ownership first.
-- The Skill's core intent is unclear. A Skill that cannot state what success looks like cannot be optimized. Run the manifest-creation subflow first.
+**功能型 Skill**（工作流自动化、数据处理、API 集成）：重点放在真实调用日志上的竞技场。风格锚点权重低。常见失败模式：意图偏移、格式违约、过度约束。
 
----
+**审美型 Skill**（设计、排版、视觉生成）：**锚点是强制的。** 培育开始之前，用户必须先建立 5-10 个正向锚点（喜欢的输出）和 3-5 个负向锚点（不对味的输出）。竞技场照跑，但锚点相似度是硬门槛。候选赢了竞技场却偏离锚点，照样被否决。
 
-## Constraint rules
+**创作型 Skill**（写作、故事、创意）：上述两类的结合，外加专门的 AI 味检测器。常见失败模式：套路化措辞、语气漂移、过度结构化输出。用户仲裁触发得更频繁，因为创作审美更难委托给 LLM。
 
-1. **Never change a Skill's declared intent**, only how it achieves that intent. The manifest is the contract.
-2. **Never exceed 150% of original file size** unless the user explicitly asks for a rewrite.
-3. **Never introduce new external dependencies** (new scripts, new references, new network calls) without explicit user approval.
-4. **Never commit to the main branch directly.** All gardener work lives on `gardener/*` branches until user-approved merge.
-5. **Never skip the holdout.** If the holdout set is empty, optimization halts; the user must supply more log data.
-6. **Never collapse the evaluation to a single score** in any output.
-7. **Respect stop requests.** If the user says "stop", halt immediately and report state.
+**混合型 Skill**：先处理主导维度，次要维度作为硬性把关。
 
 ---
 
-## Output etiquette
+## 何时应该拒绝或延后
 
-Reports should:
+以下情况不要运行培育流程：
 
-- Lead with the decision (improved / unchanged / rejected), not the process
-- Show evidence (match counts, specific prompts, diff highlights) before conclusions
-- Mark confidence levels explicitly ("strong preference," "weak preference," "cold-start estimate")
-- Name the failure modes being addressed in plain language, not jargon
-
-Reports should not:
-
-- Produce a single composite score
-- Claim improvements not validated on holdout
-- Hide the rejected candidates — list them with their win rates
-- Use celebratory language ("great progress!"). State the result plainly.
+- **深度档**（`~cultivate`）在 Skill 日志少于 5 条、且用户拒绝提供回溯数据或锚点时。说清楚原因：没有证据的经验性"优化"是表演——但**这时不要两手一摊，改走 `~tune` 快速档**，静态审查零数据也能显著改进。
+- 用户要一个"综合评分"或"总评"。解释这个系统刻意**不**产出单一分数，并提供失败报告作为更有用的替代。
+- 用户想优化一个不属于他的 Skill。培育会修改 SKILL.md；先确认所有权。
+- Skill 的核心意图本身不清晰。一个说不清"成功长什么样"的 Skill 没法被优化。先跑 manifest 生成子流程。
 
 ---
 
-## Reference files
+## 约束规则
 
-Load on demand when the relevant stage needs them:
-
-- `references/skill-types.md` — Skill type taxonomy, manifest format, per-type logic
-- `references/failure-modes.md` — Catalog of failure modes with detection heuristics and examples
-- `references/candidate-strategies.md` — Menu of improvement strategies, organized by failure mode
-- `references/arena-protocol.md` — Detailed pairwise comparison and judge-agent protocol
-- `references/anchor-system.md` — How to build, maintain, and evaluate against style anchors
-
-Runtime state (created on first use, not shipped):
-
-- `_runtime/principles.md` — accumulated cross-Skill principles
-- `_runtime/taste-db.jsonl` — user preference votes, line-per-vote
-- `_runtime/skill-registry.yaml` — classification and manifest paths for each Skill under gardening
-- `_runtime/logs/<skill-name>/` — usage logs, cultivation records, and sub-agent outputs
+1. **永不改变 Skill 的声明意图**，只优化它实现意图的方式。manifest 是契约。
+2. **文件大小不超过原始的 150%**，除非用户明确要求重写。
+3. **不引入新的外部依赖**——新脚本、新引用、新网络调用——除非用户明确同意。
+4. **绝不就地覆盖原 skill。** 所有 gardener 工作先在副本 `<skill>.gardener-draft/` 上做，给用户 before/after，确认后再覆盖。若在 git 仓库内，用 `gardener/*` 分支更佳；不在 git 下副本+diff 同样安全。不要求用户的 skills 目录是 git 仓库。
+5. **绝不跳过验证集。** 验证集为空时优化直接停止，必须由用户补充更多日志数据。
+6. **绝不在任何输出里把评估压缩成单一分数。**
+7. **尊重停止请求。** 用户说"停"就立即停并如实汇报当前状态。
 
 ---
 
-## A note on honesty
+## 输出礼仪
 
-This system is not magic. It cannot turn a bad Skill into a great one without real data about how the Skill is failing. It cannot evaluate aesthetic quality without the user's own reference examples. It cannot prove improvement beyond what the holdout set can tell us.
+好的报告应该：
 
-What it can do, reliably, is: surface specific failures with evidence, generate diverse candidate fixes, let them compete on real prompts, validate that wins hold up on held-out data, and accumulate a principles library and a taste database that become more valuable over time.
+- 结论先行——改进 / 不变 / 拒绝——过程在后
+- 先证据——比赛场次、具体 prompt、diff 高亮——后结论
+- 明确标注置信等级："强偏好""弱偏好""冷启动估计"
+- 用人话命名失败模式，避免术语堆砌
 
-Think of it as a long-term relationship with your Skills, not a one-shot optimizer. The value compounds across months, not minutes.
+好的报告不应该：
+
+- 给出一个单一综合分数
+- 宣称未经验证集确认的"改进"
+- 把被淘汰的候选藏起来——要列出来，带上它们的胜率
+- 使用庆祝性语言——"太棒了""有进步"——如实陈述结果就好
+
+---
+
+## 引用文件
+
+按阶段按需加载：
+
+- `references/quick-review.md` — **快速档**（`~tune`）：零数据静态专家审查的六维清单与安全修复流程
+- `references/log-capture.md` — **日志捕获**（`~capture`）：自动 hook 配置、会话回溯、冷启动兜底
+- `references/health-card.md` — **健康档案**（`~health`）：让进化可感知的成长轨迹格式
+- `references/roadmap.md` — **规划档**（`~roadmap`）：拆分/废弃/扩展/合并/重分类 方向引导
+- `references/skill-types.md` — Skill 类型分类、manifest 格式、每类的专属逻辑
+- `references/failure-modes.md` — 失败模式目录，每种带检测启发和示例（`~tune` 与 `~cultivate` 共用）
+- `references/candidate-strategies.md` — 改进策略菜单，按失败模式组织
+- `references/arena-protocol.md` — 成对比较和裁判 agent 的详细协议（含省算力的冠军-基线默认模式）
+- `references/anchor-system.md` — 风格锚点如何建立、维护、评估
+
+运行时状态——首次使用时创建，不随包发布：
+
+- `_runtime/principles.md` — 积累的跨 Skill 原则
+- `_runtime/taste-db.jsonl` — 用户偏好投票，每行一票
+- `_runtime/skill-registry.yaml` — 每个 Skill 的类型分类和 manifest 路径
+- `_runtime/logs/<skill-name>/` — 使用日志、培育记录、子 agent 输出
+
+---
+
+## 关于诚实的一点说明
+
+这个系统不是魔法。它不能在没有真实失败数据的前提下，把烂 Skill 变成好 Skill。它不能在没有用户参考样本的前提下评估审美质量。它不能证明"超出验证集能说明的那部分"改进。
+
+它**能**做的事是：用证据暴露具体失败、生成多样化的修复候选、让它们在真实 prompt 上竞争、在独立验证集上确认胜出者没有过拟合、随着时间累积原则库和品味数据库让价值复利。
+
+把它当成你和你的 Skill 之间的长期关系，不是一次性优化器。价值按月按年复利，不是按分钟。
